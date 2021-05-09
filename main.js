@@ -5,16 +5,12 @@ const mongoose = require("mongoose");
 const Xp = require("./xpSchema.js");
 const htmlToPng = require("./htmltoPng.js");
 
-const sendEmbed = (msg, data, isarray) => {
+const sendEmbed = (msg, data, title, isarray) => {
   const res = data;
   var result;
 
   if (isarray) {
-    if (data[1]) {
-      result = res.map(({ name, xp }) => `${name}: ${xp}`).join("\n");
-    } else {
-      result = `${data.name}: ${data.xp}`;
-    }
+    result = res.map(({ name, xp }) => `${name}: ${xp}`).join("\n");
   } else {
     result = data;
   }
@@ -23,7 +19,7 @@ const sendEmbed = (msg, data, isarray) => {
     .setColor(
       "#" + ((Math.random() * 0xffffff) << 0).toString(16).padStart(6, "0")
     )
-    .setTitle("Leaderboard")
+    .setTitle(`__${title}__`)
     .setDescription(result);
 
   msg.reply(embed);
@@ -59,14 +55,15 @@ client.on("message", (msg) => {
           Xp.create({
             userId: msg.author.id,
             name: msg.author.username,
-            xp: 4,
+            xp: 2,
+            level: 0,
           });
         else if (data && !err) {
           Xp.updateOne(
             { userId: msg.author.id },
             {
               $set: {
-                xp: data.xp + 4,
+                xp: data.xp + 2,
               },
             }
           ).exec();
@@ -83,20 +80,21 @@ client.on("message", (msg) => {
     Xp.find({})
       .sort({ xp: "descending" })
       .exec((err, data) => {
-        if (!err) sendEmbed(msg, data, true);
+        if (!err) sendEmbed(msg, data, "Leaderboard", true);
       });
   } else if (msgContent.substring(0, 8) === "userinfo") {
-    const user = msg.mentions.users.first();
-    if (user === undefined) return;
+    var user = msg.mentions.users.first();
+    if (user === undefined) user = msg.author;
 
     Xp.findOne({ userId: user.id }, (err, data) => {
       if (!data && !err)
         sendEmbed(
           msg,
           `<@!${user.id}> has no xp. Earn some xp by chatting in the server`,
+          "User",
           false
         );
-      else if (!err && data) sendEmbed(msg, data, true);
+      else if (!err && data) htmlToPng(msg, user, data);
     });
   } else if (msgContent.substring(0, 4) === "sell") {
     const user = msg.mentions.users.first();
@@ -105,73 +103,78 @@ client.on("message", (msg) => {
     const amount = amountn[amountn.length - 1];
 
     if (user === undefined) return;
-    else if (user.id === msg.author.id)
+
+    if (user.id === msg.author.id) {
       sendEmbed(
         msg,
         `<@!${msg.author.id}>, You can't sell your own xp to yourself`,
+        "Sell",
         false
       );
-
-    Xp.findOne({ userId: msg.author.id }, (err, data) => {
-      if (!err && !data)
-        sendEmbed(
-          msg,
-          `<@!${msg.author.id}> don't have enough xp to sell your xp!`,
-          false
-        );
-      else if (!err && data) {
-        if (data.xp > amount) {
-          Xp.findOne({ userId: user.id }, (err, giftUserData) => {
-            if (!err && !giftUserData)
-              sendEmbed(
-                msg,
-                `<@!${user.id}> should have atleast 1xp to sell money to him/her`,
-                false
-              );
-            else if (!err && giftUserData) {
-              Xp.updateOne(
-                { userId: msg.author.id },
-                {
-                  $set: {
-                    xp: data.xp - amount,
-                  },
-                }
-              ).exec();
-
-              Xp.updateOne(
-                {
-                  userId: user.id,
-                },
-                {
-                  $set: {
-                    xp: giftUserData.xp + Number(amount),
-                  },
-                }
-              ).exec((err, ok) => {
-                if (!err && ok)
-                  sendEmbed(
-                    msg,
-                    `U have sold your ${amount} xp to <@!${
-                      user.id
-                    }>. \nYour existing balance is ${data.xp - amount}`,
-                    false
-                  );
-              });
-            }
-          });
-        } else {
+    } else {
+      Xp.findOne({ userId: msg.author.id }, (err, data) => {
+        if (!err && !data)
           sendEmbed(
             msg,
-            `<@!${msg.author.id}>, you don't have enough xp to sell`,
+            `<@!${msg.author.id}> don't have enough xp to sell your xp!`,
+            "Sell",
             false
           );
+        else if (!err && data) {
+          if (data.xp > amount) {
+            Xp.findOne({ userId: user.id }, (err, giftUserData) => {
+              if (!err && !giftUserData)
+                sendEmbed(
+                  msg,
+                  `<@!${user.id}> should have atleast 1xp to sell money to him/her`,
+                  "Sell",
+                  false
+                );
+              else if (!err && giftUserData) {
+                Xp.updateOne(
+                  { userId: msg.author.id },
+                  {
+                    $set: {
+                      xp: data.xp - amount,
+                    },
+                  }
+                ).exec();
+
+                Xp.updateOne(
+                  {
+                    userId: user.id,
+                  },
+                  {
+                    $set: {
+                      xp: giftUserData.xp + Number(amount),
+                    },
+                  }
+                ).exec((err, ok) => {
+                  if (!err && ok)
+                    sendEmbed(
+                      msg,
+                      `You have sold your ${amount} xp to <@!${
+                        user.id
+                      }>. \nYour existing balance is ${data.xp - amount}`,
+                      "Sell",
+                      false
+                    );
+                });
+              }
+            });
+          } else {
+            sendEmbed(
+              msg,
+              `<@!${msg.author.id}>, you don't have enough xp to sell`,
+              "Sell",
+              false
+            );
+          }
         }
-      }
-    });
-  } else if (msgContent.substring(0, 7) === "fuckoff") {
-    sendEmbed(msg, `<@!${msg.author.id}>, Fuck YOURSELF`, false);
-  } else if (msgContent.substring(0, 4) === "html") {
-    htmlToPng(msg, msg.author.avatarURL());
+      });
+    }
+  } else if (msgContent.indexOf("fuck") > -1) {
+    sendEmbed(msg, `<@!${msg.author.id}>, Fuck YOURSELF`, "You Asked", false);
   }
 });
 
